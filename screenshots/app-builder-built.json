@@ -1,0 +1,42 @@
+{
+  "url": "http://127.0.0.1:8081",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "Саветодавно тело",
+      "hasCanvas": false,
+      "bodyTextLen": 569,
+      "bodyTextHash": "e99f9a5221bd0863da8423e26f2e8df9d3d6493510bd2a0adc14e38f7cdceb0a",
+      "bodyTextPrefix": "Саветодавно тело Направио Марко Његомир English Млечни пут · Sol",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "Саветодавно тело",
+      "hasCanvas": false,
+      "bodyTextLen": 569,
+      "bodyTextHash": "e99f9a5221bd0863da8423e26f2e8df9d3d6493510bd2a0adc14e38f7cdceb0a",
+      "bodyTextPrefix": "Саветодавно тело Направио Марко Његомир English Млечни пут · Sol",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-built.json",
+  "divergesFromBaseline": true,
+  "baselineReasons": [
+    "desktop: canvas disappeared",
+    "desktop: body text replaced (similar length, page start changed)",
+    "mobile: body text replaced (similar length, page start changed)"
+  ]
+}

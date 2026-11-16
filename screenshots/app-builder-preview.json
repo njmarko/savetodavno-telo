@@ -1,0 +1,36 @@
+{
+  "url": "http://127.0.0.1:8080",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "Саветодавно тело",
+      "hasCanvas": true,
+      "bodyTextLen": 531,
+      "bodyTextHash": "8e3c5779daa6cf27d557f82a085893b31afb9136647c85feab9013dd43adf017",
+      "bodyTextPrefix": "Саветодавно тело Направио Марко Његомир English Имена 20 · У буб",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "Саветодавно тело",
+      "hasCanvas": false,
+      "bodyTextLen": 525,
+      "bodyTextHash": "37e1bb153f681da73eab306a892be625a7032dbf916cf63206bbac1cb66aa84c",
+      "bodyTextPrefix": "Саветодавно тело Направио Марко Његомир English Имена 20 · У буб",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-preview.json"
+}
