@@ -607,6 +607,7 @@ export function LotteryApp() {
       engine.setWindHeight(windRef.current.height);
       engine.setSuction(suctionRef.current);
       engine.setVolume(volumeRef.current);
+      engine.setMusic(musicVolumeRef.current, musicModeRef.current !== "off");
       engine.setDrawCount(drawCountRef.current);
       engine.setNames(parseNames(textRef.current).names);
       engine.startLoop();
@@ -679,6 +680,10 @@ export function LotteryApp() {
   useEffect(() => {
     engineRef.current?.setVolume(volume);
   }, [volume]);
+
+  useEffect(() => {
+    engineRef.current?.setMusic(musicVolume, musicMode !== "off");
+  }, [musicVolume, musicMode]);
 
   useEffect(() => {
     engineRef.current?.setDrawCount(drawCount);

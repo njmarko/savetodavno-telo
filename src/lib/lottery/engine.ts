@@ -231,6 +231,10 @@ export class LotteryEngine {
   private windPreview = false;
   private suction = 1;
   private volume = 0;
+  private musicVolume = 0.8;
+  private musicEnabled = true;
+  private musicBuffer: AudioBuffer | null = null;
+  private musicLoading: Promise<void> | null = null;
   private windClock = 0;
   private paddleOmega = 0;
   private hudText: HudCopy = {
@@ -966,6 +970,12 @@ export class LotteryEngine {
     this.volume = Math.min(3, Math.max(0, value));
   }
 
+  setMusic(volume: number, enabled: boolean) {
+    this.musicVolume = Math.min(1, Math.max(0, volume));
+    this.musicEnabled = enabled;
+    this.recorder.setScore(this.musicBuffer, enabled ? this.musicVolume : 0);
+  }
+
   setWind(on: boolean, strength: number) {
     this.windOn = on;
     this.wind = Math.min(12, Math.max(0, strength));
@@ -1136,8 +1146,10 @@ export class LotteryEngine {
   }
 
   private knock(strength: number) {
+    if (this.volume <= 0.001) return;
+    if (this.recording) this.recorder.knock(strength, this.volume);
     const ctx = this.audio;
-    if (!ctx || ctx.state !== "running" || this.volume <= 0.001) return;
+    if (!ctx || ctx.state !== "running") return;
     this.ensureNoise();
     if (!this.noiseBuf) return;
     const now = ctx.currentTime;
@@ -1169,8 +1181,10 @@ export class LotteryEngine {
   }
 
   private chime() {
+    if (this.volume <= 0.001) return;
+    if (this.recording) this.recorder.chime(this.volume);
     const ctx = this.audio;
-    if (!ctx || ctx.state !== "running" || this.volume <= 0.001) return;
+    if (!ctx || ctx.state !== "running") return;
     const t = ctx.currentTime;
     const peak = 0.06 * this.volume;
     const gain = ctx.createGain();
@@ -1230,6 +1244,10 @@ export class LotteryEngine {
     if (this.recording || !this.renderer || this.names.length === 0) return;
     if (this.phase === "mixing" || this.phase === "opening" || this.phase === "extracting" || this.phase === "presenting") return;
     this.unlock();
+    if (this.musicEnabled && this.musicVolume > 0.001) {
+      await this.ensureMusic().catch(() => undefined);
+    }
+    this.recorder.setScore(this.musicBuffer, this.musicEnabled ? this.musicVolume : 0);
     this.readView();
     const size = this.recordSize();
     let opened = false;
@@ -1252,6 +1270,22 @@ export class LotteryEngine {
     this.bufW = 0;
     this.hooks.onRecord("recording");
     this.begin(false);
+  }
+
+  private ensureMusic() {
+    if (this.musicBuffer) return Promise.resolve();
+    if (this.musicLoading) return this.musicLoading;
+    this.musicLoading = (async () => {
+      const response = await fetch("/audio/zarathustra.mp3");
+      if (!response.ok) return;
+      const encoded = await response.arrayBuffer();
+      this.unlock();
+      const ctx = this.audio;
+      if (!ctx) return;
+      this.musicBuffer = await ctx.decodeAudioData(encoded.slice(0));
+      this.recorder.setScore(this.musicBuffer, this.musicEnabled ? this.musicVolume : 0);
+    })();
+    return this.musicLoading;
   }
 
   private recordSize() {
