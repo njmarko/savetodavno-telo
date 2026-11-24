@@ -1,10 +1,14 @@
-import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Clapperboard, Eraser, Play, RotateCcw, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { ChevronDown, Clapperboard, Eraser, Info, Play, RotateCcw, Settings, Sparkles, Undo2 } from "lucide-react";
 import { COPY, hudCopy, type Lang } from "@/lib/i18n";
 import { MAX_NAMES, LEGACY_SAMPLE_TEXT, SAMPLE_TEXT, parseNames } from "@/lib/lottery/names";
 import type { EngineHooks, LotteryEngine, Phase, PhysicsSettings, RecordState } from "@/lib/lottery/engine";
 
 const STORAGE_KEY = "savetodavno-telo-v1";
+const MUSIC_SRC = "/audio/zarathustra.mp3";
+
+type MusicMode = "draw" | "always" | "off";
 
 type Save = {
   lang: Lang;
@@ -27,12 +31,26 @@ type Save = {
   windHeight: number;
   suction: number;
   volume: number;
+  music: MusicMode;
+  musicVolume: number;
   pickDefault: number;
   tune: number;
 };
 
 function clampNum(value: unknown, fallback: number, min: number, max: number) {
   return typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+}
+
+function musicModeOf(value: unknown): MusicMode {
+  return value === "always" || value === "off" || value === "draw" ? value : "draw";
+}
+
+const DRAWING: Phase[] = ["mixing", "opening", "extracting", "presenting", "finale"];
+
+function musicShouldPlay(mode: MusicMode, phase: Phase) {
+  if (mode === "off") return false;
+  if (mode === "always") return true;
+  return DRAWING.includes(phase);
 }
 
 function loadSave(): Save | null {
@@ -63,11 +81,13 @@ function loadSave(): Save | null {
       windOn: tune >= 3 ? data.windOn !== false : true,
       wind: keptWind ? clampNum(data.wind, 3, 0, 12) : 3,
       windWidth: tune >= 3 ? clampNum(data.windWidth, 0.33, 0.2, 1) : 0.33,
-      windHeight: keptWind ? clampNum(data.windHeight, 0.9, 0.15, 1) : 0.9,
+      windHeight: tune >= 6 ? clampNum(data.windHeight, 0.85, 0.15, 1) : 0.85,
       suction: clampNum(data.suction, 1, 0, 3),
-      volume: clampNum(data.volume, 1, 0, 3),
+      volume: tune >= 5 ? clampNum(data.volume, 0, 0, 3) : 0,
+      music: musicModeOf(data.music),
+      musicVolume: clampNum(data.musicVolume, 0.8, 0, 1),
       pickDefault: 1,
-      tune: 4,
+      tune: 6,
     };
   } catch {
     return null;
@@ -107,37 +127,139 @@ function FlagUSA() {
     </svg>
   );
 }
+function useFineHover() {
+  const [fine, setFine] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const apply = () => setFine(query.matches);
+    apply();
+    query.addEventListener("change", apply);
+    return () => query.removeEventListener("change", apply);
+  }, []);
+  return fine;
+}
+
+function Hinted({
+  text,
+  label,
+  extra,
+  children,
+}: {
+  text?: string;
+  label: ReactNode;
+  extra?: ReactNode;
+  children?: ReactNode;
+}) {
+  const fine = useFineHover();
+  const btn = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const [tip, setTip] = useState<{ left: number; top: number; width: number; above: boolean } | null>(null);
+
+  function place() {
+    const el = btn.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const width = Math.min(256, window.innerWidth - 24);
+    const left = Math.min(Math.max(12, rect.left - 8), window.innerWidth - 12 - width);
+    const above = window.innerHeight - rect.bottom < 96;
+    setTip({ left, top: above ? rect.top - 8 : rect.bottom + 8, width, above });
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5 text-sm font-semibold">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-0.5">
+          {label}
+          {text ? (
+            <button
+              ref={btn}
+              type="button"
+              aria-label={text}
+              aria-expanded={!fine && open}
+              className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-muted hover:text-brass"
+              onMouseEnter={() => {
+                if (fine) place();
+              }}
+              onMouseLeave={() => setTip(null)}
+              onFocus={() => {
+                if (fine) place();
+              }}
+              onBlur={() => setTip(null)}
+              onClick={() => {
+                if (fine) return;
+                setOpen((value) => !value);
+              }}
+            >
+              <Info className="size-4" aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
+        {extra}
+      </div>
+      {text && open && !fine ? <p className="text-sm leading-snug font-medium text-muted">{text}</p> : null}
+      {children}
+      {tip && text
+        ? createPortal(
+            <div
+              role="tooltip"
+              style={{
+                left: tip.left,
+                top: tip.top,
+                width: tip.width,
+                transform: tip.above ? "translateY(-100%)" : undefined,
+              }}
+              className="pointer-events-none fixed z-50 rounded-md border border-line bg-surface px-3 py-2 text-sm leading-snug font-medium text-fg shadow-lg"
+            >
+              {text}
+            </div>,
+            document.body,
+          )
+        : null}
+    </div>
+  );
+}
+
 function Toggle({
   id,
   label,
+  hint,
   checked,
   disabled,
   onChange,
 }: {
   id: string;
   label: string;
+  hint?: string;
   checked: boolean;
   disabled?: boolean;
   onChange: (value: boolean) => void;
 }) {
   return (
-    <label className="flex h-11 items-center justify-between gap-3 text-sm font-semibold" htmlFor={id}>
-      {label}
-      <input
-        id={id}
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.checked)}
-        className="size-5 accent-brass disabled:opacity-60"
-      />
-    </label>
+    <Hinted
+      text={hint}
+      label={
+        <label htmlFor={id} className="min-w-0">
+          {label}
+        </label>
+      }
+      extra={
+        <input
+          id={id}
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.checked)}
+          className="size-6 accent-brass disabled:opacity-60"
+        />
+      }
+    />
   );
 }
 
 function Slider({
   id,
   label,
+  hint,
   value,
   min,
   max,
@@ -150,6 +272,7 @@ function Slider({
 }: {
   id: string;
   label: string;
+  hint?: string;
   value: number;
   min: number;
   max: number;
@@ -161,11 +284,15 @@ function Slider({
   onRelease?: () => void;
 }) {
   return (
-    <label className="flex flex-col gap-1.5 text-sm font-semibold" htmlFor={id}>
-      <span className="flex items-center justify-between gap-3">
-        {label}
-        <span className="font-medium text-brass tabular-nums">{display}</span>
-      </span>
+    <Hinted
+      text={hint}
+      label={
+        <label htmlFor={id} className="min-w-0">
+          {label}
+        </label>
+      }
+      extra={<span className="font-medium text-brass tabular-nums">{display}</span>}
+    >
       <input
         id={id}
         type="range"
@@ -188,7 +315,19 @@ function Slider({
         }}
         className="h-10 w-full accent-brass disabled:opacity-60"
       />
-    </label>
+    </Hinted>
+  );
+}
+
+function OptionGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <details className="group/opt border-t border-line">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+        {title}
+        <ChevronDown className="size-4 shrink-0 text-muted transition-transform group-open/opt:rotate-180" aria-hidden="true" />
+      </summary>
+      <div className="grid gap-3 px-3 pb-3">{children}</div>
+    </details>
   );
 }
 
@@ -208,7 +347,7 @@ function NameList({
   let count = 0;
   const numbers = lines.map((line) => (line.trim() ? ++count : 0));
   return (
-    <div className="flex min-h-40 flex-1 overflow-hidden rounded-md border border-line bg-bg">
+    <div className="flex max-h-36 min-h-32 flex-1 overflow-hidden rounded-md border border-line bg-bg lg:max-h-none lg:min-h-40">
       <div
         ref={gutterRef}
         aria-hidden="true"
@@ -231,7 +370,7 @@ function NameList({
           if (gutterRef.current) gutterRef.current.scrollTop = event.currentTarget.scrollTop;
         }}
         onChange={(event) => onChange(event.target.value)}
-        className="min-h-40 w-full flex-1 resize-y overflow-auto bg-transparent px-3 py-3 text-base leading-6 whitespace-pre text-fg placeholder:text-muted disabled:opacity-60"
+        className="max-h-36 min-h-32 w-full min-w-0 flex-1 resize-y overflow-auto bg-transparent px-3 py-3 text-base leading-6 whitespace-pre text-fg placeholder:text-muted disabled:opacity-60 lg:max-h-none lg:min-h-40"
       />
     </div>
   );
@@ -257,9 +396,13 @@ export function LotteryApp() {
   const [windOn, setWindOn] = useState(true);
   const [wind, setWind] = useState(3);
   const [windWidth, setWindWidth] = useState(0.33);
-  const [windHeight, setWindHeight] = useState(0.9);
+  const [windHeight, setWindHeight] = useState(0.85);
   const [suction, setSuction] = useState(1);
-  const [volume, setVolume] = useState(1);
+  const [volume, setVolume] = useState(0);
+  const [musicMode, setMusicMode] = useState<MusicMode>("draw");
+  const [musicVolume, setMusicVolume] = useState(0.8);
+  const [undoText, setUndoText] = useState<string | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
   const [drawn, setDrawn] = useState<string[]>([]);
   const [numbers, setNumbers] = useState<number[]>([]);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -271,6 +414,7 @@ export function LotteryApp() {
   const [hydrated, setHydrated] = useState(false);
 
   const t = COPY[lang];
+  const finePointer = useFineHover();
   const parsed = parseNames(text);
   const busy =
     phase === "mixing" ||
@@ -294,6 +438,10 @@ export function LotteryApp() {
   const windRef = useRef({ on: windOn, strength: wind, width: windWidth, height: windHeight });
   const suctionRef = useRef(suction);
   const volumeRef = useRef(volume);
+  const musicModeRef = useRef(musicMode);
+  const musicVolumeRef = useRef(musicVolume);
+  const phaseRef = useRef(phase);
+  const musicRef = useRef<HTMLAudioElement | null>(null);
   const langRef = useRef(lang);
   textRef.current = text;
   drawCountRef.current = drawCount;
@@ -307,7 +455,27 @@ export function LotteryApp() {
   windRef.current = { on: windOn, strength: wind, width: windWidth, height: windHeight };
   suctionRef.current = suction;
   volumeRef.current = volume;
+  musicModeRef.current = musicMode;
+  musicVolumeRef.current = musicVolume;
+  phaseRef.current = phase;
   langRef.current = lang;
+
+  const syncMusic = (nextPhase: Phase, mode = musicModeRef.current) => {
+    if (!musicRef.current) {
+      const audio = new Audio(MUSIC_SRC);
+      audio.loop = true;
+      audio.preload = "auto";
+      musicRef.current = audio;
+    }
+    const audio = musicRef.current;
+    audio.volume = Math.min(1, Math.max(0, musicVolumeRef.current));
+    if (!musicShouldPlay(mode, nextPhase)) {
+      if (!audio.paused) audio.pause();
+      if (mode !== "always") audio.currentTime = 0;
+      return;
+    }
+    if (audio.paused) void audio.play().catch(() => undefined);
+  };
 
   const hooksRef = useRef<EngineHooks>({
     onDrawn: () => undefined,
@@ -321,10 +489,14 @@ export function LotteryApp() {
     setNumbers(nums);
   };
   hooksRef.current.onPhase = (next) => {
+    phaseRef.current = next;
     setPhase(next);
     setCanReplay(engineRef.current?.canReplay() ?? false);
   };
-  hooksRef.current.onRecord = (state) => setRecord(state);
+  hooksRef.current.onRecord = (state) => {
+    setRecord(state);
+    if (state === "unsupported" || state === "error") syncMusic(phaseRef.current);
+  };
   hooksRef.current.onFile = (blob) => {
     const url = URL.createObjectURL(blob);
     setVideoUrl((prev) => {
@@ -361,6 +533,8 @@ export function LotteryApp() {
       setWindHeight(saved.windHeight);
       setSuction(saved.suction);
       setVolume(saved.volume);
+      setMusicMode(saved.music);
+      setMusicVolume(saved.musicVolume);
       if (saved.text === LEGACY_SAMPLE_TEXT) setText(SAMPLE_TEXT);
     }
     setHydrated(true);
@@ -389,12 +563,27 @@ export function LotteryApp() {
       windHeight,
       suction,
       volume,
+      music: musicMode,
+      musicVolume,
       pickDefault: 1,
-      tune: 4,
+      tune: 6,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     document.documentElement.lang = lang === "sr" ? "sr" : "en";
-  }, [hydrated, lang, text, count, speed, mix, gravity, agitation, bounce, drag, ballScale, machineScale, rodsOn, rodCount, rodSpeed, windOn, wind, windWidth, windHeight, suction, volume]);
+  }, [hydrated, lang, text, count, speed, mix, gravity, agitation, bounce, drag, ballScale, machineScale, rodsOn, rodCount, rodSpeed, windOn, wind, windWidth, windHeight, suction, volume, musicMode, musicVolume]);
+
+  useEffect(() => {
+    syncMusic(phase);
+  }, [phase, musicMode, musicVolume]);
+
+  useEffect(() => {
+    const kick = () => syncMusic(phaseRef.current);
+    window.addEventListener("pointerdown", kick);
+    return () => {
+      window.removeEventListener("pointerdown", kick);
+      musicRef.current?.pause();
+    };
+  }, []);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -506,15 +695,15 @@ export function LotteryApp() {
     record === "unsupported" ? t.unsupported : record === "error" ? t.exportFailed : record === "saved" ? t.exportSaved : "";
 
   return (
-    <div className="flex min-h-dvh flex-col bg-bg text-fg lg:h-dvh lg:overflow-hidden">
-      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-line px-4 py-3 sm:px-6">
-        <div className="flex items-center gap-3">
-          <span className="grid size-11 shrink-0 place-items-center rounded-full border border-brass" aria-hidden="true">
-            <span className="size-3 rounded-full bg-brass" />
+    <div className="flex min-h-dvh flex-col bg-bg pb-36 text-fg lg:h-dvh lg:overflow-hidden lg:pb-0">
+      <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] sm:px-6 sm:py-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-full border border-brass sm:size-11" aria-hidden="true">
+            <span className="size-2.5 rounded-full bg-brass sm:size-3" />
           </span>
-          <div>
-            <h1 className="font-display text-3xl leading-none text-fg sm:text-4xl">Саветодавно тело</h1>
-            <p className="mt-1 text-sm text-muted">
+          <div className="min-w-0">
+            <h1 className="truncate font-display text-2xl leading-none text-fg sm:text-4xl">Саветодавно тело</h1>
+            <p className="app-credit mt-1 truncate text-xs text-muted sm:text-sm">
               {t.madeBy}{" "}
               <a
                 className="text-brass underline decoration-brass/50 underline-offset-2 hover:decoration-brass"
@@ -529,7 +718,7 @@ export function LotteryApp() {
         </div>
         <button
           type="button"
-          className="inline-flex h-11 items-center gap-2 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-fg"
+          className="inline-flex h-11 shrink-0 items-center gap-2 rounded-md border border-line bg-surface px-3 text-sm font-semibold text-fg sm:px-4"
           onClick={() => setLang((current) => (current === "sr" ? "en" : "sr"))}
         >
           {lang === "sr" ? <FlagUSA /> : <FlagSerbia />}
@@ -537,8 +726,8 @@ export function LotteryApp() {
         </button>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_22.5rem]">
-        <div className="relative min-h-[48vh] bg-bg lg:min-h-0">
+      <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_22.5rem] lg:grid-rows-[minmax(0,1fr)_auto] lg:overflow-hidden">
+        <div className="stage-frame relative h-[42dvh] max-h-[calc(100svh-14rem)] min-h-0 shrink-0 bg-bg lg:col-start-1 lg:row-start-1 lg:h-full lg:max-h-none">
           <div ref={hostRef} className="absolute inset-0" />
           {record === "recording" ? (
             <div className="pointer-events-none absolute top-4 right-4 z-10 flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-2 text-sm text-fg">
@@ -553,7 +742,7 @@ export function LotteryApp() {
             href="https://www.solarsystemscope.com/textures/"
             target="_blank"
             rel="noreferrer"
-            className="absolute bottom-2 left-3 z-10 text-[10px] tracking-wide text-white/40 hover:text-white/70"
+            className="absolute top-2 left-3 z-10 max-w-[70%] text-xs tracking-wide text-fg/40 hover:text-fg/70"
           >
             Млечни пут 8K · Solar System Scope · CC BY 4.0
           </a>
@@ -562,7 +751,31 @@ export function LotteryApp() {
           </p>
         </div>
 
-        <aside className="flex flex-col gap-4 overflow-y-auto border-t border-line p-4 lg:border-t-0 lg:border-l">
+        <section className="drawn-strip max-h-36 shrink-0 overflow-y-auto border-t border-line px-4 py-3 sm:px-6 lg:col-span-2 lg:col-start-1 lg:row-start-2 lg:max-h-52" aria-live="polite">
+          <h2 className="text-sm font-semibold text-muted">{t.drawnTitle}</h2>
+          {drawn.length === 0 ? (
+            <p className="mt-1 text-sm text-muted">{t.drawnEmpty}</p>
+          ) : (
+            <ol className="mt-2 flex gap-2 overflow-x-auto pb-1">
+              {drawn.map((name, index) => (
+                <li
+                  key={`${index}-${name}`}
+                  className={`flex max-w-full shrink-0 items-center gap-2 rounded-full border bg-surface px-3 py-2 text-sm ${
+                    index === drawn.length - 1 ? "border-brass" : "border-line"
+                  }`}
+                >
+                  <span className="font-display text-lg leading-none text-brass tabular-nums">
+                    {numbers[index] ?? index + 1}
+                  </span>
+                  <span className="max-w-48 truncate">{name}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+
+        <aside className="flex min-w-0 flex-col gap-4 border-t border-line p-4 lg:col-start-2 lg:row-start-1 lg:overflow-y-auto lg:border-t-0 lg:border-l">
+          <div className="order-2 flex flex-col gap-4 lg:order-none">
           <div className="flex items-end justify-between gap-3">
             <label className="text-sm font-semibold" htmlFor="names">
               {t.names}
@@ -573,10 +786,25 @@ export function LotteryApp() {
             </span>
           </div>
           <NameList value={text} disabled={busy} placeholder={t.namesHint} onChange={setText} />
+          {undoText !== null ? (
+            <div className="flex items-center justify-between gap-3 rounded-md border border-brass bg-surface px-3 py-2">
+              <p className="text-sm">{t.cleared}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setText(undoText);
+                  setUndoText(null);
+                }}
+                className="inline-flex h-11 shrink-0 items-center gap-2 rounded-md px-3 text-sm font-semibold text-brass"
+              >
+                <Undo2 className="size-4" aria-hidden="true" />
+                {t.undo}
+              </button>
+            </div>
+          ) : null}
           <p className="text-sm text-muted">{parsed.truncated ? t.tooMany : t.namesHint}</p>
 
-          <label className="flex flex-col gap-2 text-sm font-semibold" htmlFor="count">
-            {t.howMany}
+          <Hinted text={t.howManyHint} label={<label htmlFor="count">{t.howMany}</label>}>
             <input
               id="count"
               type="number"
@@ -591,11 +819,12 @@ export function LotteryApp() {
               }}
               className="h-11 rounded-md border border-line bg-bg px-3 text-base font-medium text-fg disabled:opacity-60"
             />
-          </label>
+          </Hinted>
 
           <Slider
             id="mix"
             label={t.mixTime}
+            hint={t.mixHint}
             value={mix}
             min={2}
             max={60}
@@ -604,36 +833,95 @@ export function LotteryApp() {
             disabled={record === "recording"}
             onChange={setMix}
           />
-          <p className="-mt-2 text-sm text-muted">{t.mixHint}</p>
-          <p className="-mt-2 text-sm text-muted">{t.cameraHint}</p>
-          <button
-            type="button"
-            onClick={() => engineRef.current?.resetCamera()}
-            className="inline-flex h-11 items-center justify-center rounded-md border border-line bg-surface px-3 text-sm font-semibold text-fg"
-          >
-            {t.resetCamera}
-          </button>
+
+          <Hinted
+            text={finePointer ? t.cameraHint : t.cameraHintTouch}
+            label={
+              <button
+                type="button"
+                onClick={() => engineRef.current?.resetCamera()}
+                className="inline-flex h-11 flex-1 items-center justify-center rounded-md border border-line bg-surface px-3 text-sm font-semibold text-fg"
+              >
+                {t.resetCamera}
+              </button>
+            }
+          />
 
           <details className="group rounded-md border border-line bg-surface">
-            <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-3 text-sm font-semibold [&::-webkit-details-marker]:hidden">
-              {t.physics}
+            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+              <span className="flex items-center gap-2">
+                <Settings className="size-4 text-brass" aria-hidden="true" />
+                {t.options}
+              </span>
               <ChevronDown className="size-4 text-muted transition-transform group-open:rotate-180" aria-hidden="true" />
             </summary>
-            <div className="grid gap-3 px-3 pb-3">
+            <OptionGroup title={t.sectionSound}>
+              {(
+                [
+                  ["draw", t.musicDraw, t.musicDrawHint],
+                  ["always", t.musicAlways, t.musicAlwaysHint],
+                  ["off", t.musicOff, t.musicOffHint],
+                ] as const
+              ).map(([mode, label, hint]) => (
+                <Hinted
+                  key={mode}
+                  text={hint}
+                  label={
+                    <label htmlFor={`music-${mode}`} className="flex min-h-11 flex-1 items-center gap-3">
+                      <input
+                        id={`music-${mode}`}
+                        type="radio"
+                        name="music-mode"
+                        className="size-5 accent-brass"
+                        checked={musicMode === mode}
+                        onChange={() => {
+                          musicModeRef.current = mode;
+                          setMusicMode(mode);
+                          syncMusic(phaseRef.current, mode);
+                        }}
+                      />
+                      {label}
+                    </label>
+                  }
+                />
+              ))}
               <Slider
-                id="speed"
-                label={t.speed}
-                value={speed}
-                min={0.5}
-                max={4}
-                step={0.1}
-                display={`${speed.toFixed(1)}×`}
-                disabled={record === "recording"}
-                onChange={setSpeed}
+                id="music-volume"
+                label={t.musicVolume}
+                hint={t.musicVolumeHint}
+                value={musicVolume}
+                min={0}
+                max={1}
+                step={0.05}
+                display={`${Math.round(musicVolume * 100)}%`}
+                disabled={musicMode === "off"}
+                onChange={(value) => {
+                  musicVolumeRef.current = value;
+                  setMusicVolume(value);
+                  if (musicRef.current) musicRef.current.volume = value;
+                }}
               />
+              <Slider
+                id="sound"
+                label={t.sound}
+                hint={t.soundHint}
+                value={volume}
+                min={0}
+                max={3}
+                step={0.05}
+                display={`${Math.round(volume * 100)}%`}
+                disabled={record === "recording"}
+                onChange={(value) => {
+                  engineRef.current?.unlock();
+                  setVolume(value);
+                }}
+              />
+            </OptionGroup>
+            <OptionGroup title={t.sectionSize}>
               <Slider
                 id="ball-size"
                 label={t.ballSize}
+                hint={t.ballSizeHint}
                 value={ballScale}
                 min={0.45}
                 max={2.4}
@@ -645,6 +933,7 @@ export function LotteryApp() {
               <Slider
                 id="machine-size"
                 label={t.machineSize}
+                hint={t.machineSizeHint}
                 value={machineScale}
                 min={0.65}
                 max={2.4}
@@ -653,9 +942,12 @@ export function LotteryApp() {
                 disabled={busy}
                 onChange={setMachineScale}
               />
+            </OptionGroup>
+            <OptionGroup title={t.sectionRods}>
               <Toggle
                 id="rods"
                 label={t.rods}
+                hint={t.rodsHint}
                 checked={rodsOn}
                 disabled={record === "recording"}
                 onChange={setRodsOn}
@@ -663,6 +955,7 @@ export function LotteryApp() {
               <Slider
                 id="rod-count"
                 label={t.rodCount}
+                hint={t.rodCountHint}
                 value={rodCount}
                 min={1}
                 max={12}
@@ -674,6 +967,7 @@ export function LotteryApp() {
               <Slider
                 id="rod-speed"
                 label={t.rodSpeed}
+                hint={t.rodSpeedHint}
                 value={rodSpeed}
                 min={0}
                 max={3}
@@ -682,9 +976,12 @@ export function LotteryApp() {
                 disabled={record === "recording" || !rodsOn}
                 onChange={setRodSpeed}
               />
+            </OptionGroup>
+            <OptionGroup title={t.sectionWind}>
               <Toggle
                 id="wind"
                 label={t.wind}
+                hint={t.windHint}
                 checked={windOn}
                 disabled={record === "recording"}
                 onChange={(value) => {
@@ -695,6 +992,7 @@ export function LotteryApp() {
               <Slider
                 id="wind-strength"
                 label={t.windStrength}
+                hint={t.windStrengthHint}
                 value={wind}
                 min={0}
                 max={12}
@@ -706,6 +1004,7 @@ export function LotteryApp() {
               <Slider
                 id="wind-width"
                 label={t.windWidth}
+                hint={t.windWidthHint}
                 value={windWidth}
                 min={0.2}
                 max={1}
@@ -719,6 +1018,7 @@ export function LotteryApp() {
               <Slider
                 id="wind-height"
                 label={t.windHeight}
+                hint={t.windHeightHint}
                 value={windHeight}
                 min={0.15}
                 max={1}
@@ -729,10 +1029,24 @@ export function LotteryApp() {
                 onGrab={() => engineRef.current?.setWindPreview(true)}
                 onRelease={() => engineRef.current?.setWindPreview(false)}
               />
-              <p className="-mt-1 text-sm text-muted">{t.windHint}</p>
+            </OptionGroup>
+            <OptionGroup title={t.sectionPhysics}>
+              <Slider
+                id="speed"
+                label={t.speed}
+                hint={t.speedHint}
+                value={speed}
+                min={0.5}
+                max={4}
+                step={0.1}
+                display={`${speed.toFixed(1)}×`}
+                disabled={record === "recording"}
+                onChange={setSpeed}
+              />
               <Slider
                 id="suction"
                 label={t.suction}
+                hint={t.suctionHint}
                 value={suction}
                 min={0}
                 max={3}
@@ -742,22 +1056,9 @@ export function LotteryApp() {
                 onChange={setSuction}
               />
               <Slider
-                id="sound"
-                label={t.sound}
-                value={volume}
-                min={0}
-                max={3}
-                step={0.05}
-                display={`${Math.round(volume * 100)}%`}
-                disabled={record === "recording"}
-                onChange={(value) => {
-                  engineRef.current?.unlock();
-                  setVolume(value);
-                }}
-              />
-              <Slider
                 id="gravity"
                 label={t.gravity}
+                hint={t.gravityHint}
                 value={gravity}
                 min={0}
                 max={36}
@@ -769,6 +1070,7 @@ export function LotteryApp() {
               <Slider
                 id="agitation"
                 label={t.agitation}
+                hint={t.agitationHint}
                 value={agitation}
                 min={0}
                 max={2.5}
@@ -780,6 +1082,7 @@ export function LotteryApp() {
               <Slider
                 id="bounce"
                 label={t.bounce}
+                hint={t.bounceHint}
                 value={bounce}
                 min={0}
                 max={0.95}
@@ -791,6 +1094,7 @@ export function LotteryApp() {
               <Slider
                 id="drag"
                 label={t.drag}
+                hint={t.dragHint}
                 value={drag}
                 min={0}
                 max={2.4}
@@ -799,58 +1103,70 @@ export function LotteryApp() {
                 disabled={record === "recording"}
                 onChange={setDrag}
               />
-            </div>
+            </OptionGroup>
           </details>
 
           <p className="text-sm text-muted" aria-live="polite">
             {ready ? statusLabel(phase, t) : "…"}
             {nameCount > 0 && phase !== "idle" ? ` · ${drawn.length} ${t.of} ${drawCount}` : ""}
           </p>
+          </div>
 
+          <div className="draw-dock fixed inset-x-0 bottom-0 z-30 order-1 border-t border-line bg-bg/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur lg:static lg:inset-auto lg:z-auto lg:order-none lg:border-0 lg:bg-transparent lg:p-0 lg:backdrop-blur-none">
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               disabled={!ready || busy || nameCount === 0}
-              onClick={() => engineRef.current?.start()}
-              className="col-span-2 inline-flex h-11 items-center justify-center gap-2 rounded-md bg-seal px-4 text-sm font-semibold text-fg disabled:opacity-40"
+              onClick={() => {
+                engineRef.current?.start();
+                syncMusic(phaseRef.current);
+              }}
+              className="col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-seal px-4 py-2.5 text-center text-sm leading-tight font-semibold text-fg disabled:opacity-40"
             >
-              <Play className="size-4" aria-hidden="true" />
+              <Play className="size-4 shrink-0" aria-hidden="true" />
               {t.start}
             </button>
             <button
               type="button"
               disabled={!ready || record === "recording"}
               onClick={() => engineRef.current?.restart()}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-line bg-surface px-3 text-sm font-semibold text-fg disabled:opacity-40"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-line bg-surface px-3 py-2.5 text-center text-sm leading-tight font-semibold text-fg disabled:opacity-40"
             >
-              <RotateCcw className="size-4" aria-hidden="true" />
+              <RotateCcw className="size-4 shrink-0" aria-hidden="true" />
               {t.restart}
             </button>
             <button
               type="button"
-              disabled={busy}
-              onClick={() => setText("")}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-line bg-surface px-3 text-sm font-semibold text-fg disabled:opacity-40"
+              disabled={busy || !text.trim()}
+              onClick={() => setConfirmClear(true)}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-line bg-surface px-3 py-2.5 text-center text-sm leading-tight font-semibold text-fg disabled:opacity-40"
             >
-              <Eraser className="size-4" aria-hidden="true" />
+              <Eraser className="size-4 shrink-0" aria-hidden="true" />
               {t.clear}
             </button>
+          </div>
+          </div>
+          <div className="order-3 flex flex-col gap-3 lg:order-none">
+          <div className="grid grid-cols-1 gap-2">
             <button
               type="button"
               disabled={!ready || busy || nameCount === 0}
-              onClick={() => void engineRef.current?.exportVideo()}
-              className="col-span-2 inline-flex h-11 items-center justify-center gap-2 rounded-md bg-brass px-4 text-sm font-semibold text-ink disabled:opacity-40"
+              onClick={() => {
+                if (musicModeRef.current === "draw" && nameCount > 0 && record !== "recording") syncMusic("mixing", "draw");
+                void engineRef.current?.exportVideo();
+              }}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-brass px-4 py-2.5 text-center text-sm leading-tight font-semibold text-ink disabled:opacity-40"
             >
-              <Clapperboard className="size-4" aria-hidden="true" />
+              <Clapperboard className="size-4 shrink-0" aria-hidden="true" />
               {record === "recording" ? `${t.recording} ${drawn.length}/${drawCount}` : t.record}
             </button>
             <button
               type="button"
               disabled={busy}
               onClick={() => setText(SAMPLE_TEXT)}
-              className="col-span-2 inline-flex h-11 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold text-brass disabled:opacity-40"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-center text-sm leading-tight font-semibold text-brass disabled:opacity-40"
             >
-              <Sparkles className="size-4" aria-hidden="true" />
+              <Sparkles className="size-4 shrink-0" aria-hidden="true" />
               {t.sample}
             </button>
           </div>
@@ -865,31 +1181,49 @@ export function LotteryApp() {
               {t.download}
             </a>
           ) : null}
+          </div>
         </aside>
       </div>
-
-      <section className="max-h-52 shrink-0 overflow-y-auto border-t border-line px-4 py-3 sm:px-6" aria-live="polite">
-        <h2 className="text-sm font-semibold text-muted">{t.drawnTitle}</h2>
-        {drawn.length === 0 ? (
-          <p className="mt-2 text-sm text-muted">{t.drawnEmpty}</p>
-        ) : (
-          <ol className="mt-3 flex flex-wrap gap-2">
-            {drawn.map((name, index) => (
-              <li
-                key={`${index}-${name}`}
-                className={`flex max-w-full items-center gap-2 rounded-full border bg-surface px-3 py-2 text-sm ${
-                  index === drawn.length - 1 ? "border-brass" : "border-line"
-                }`}
+      {confirmClear ? (
+        <div
+          className="fixed inset-0 z-40 flex items-end justify-center bg-ink/70 p-4 sm:items-center"
+          role="presentation"
+          onClick={() => setConfirmClear(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="clear-title"
+            className="w-full max-w-sm rounded-lg border border-line bg-surface p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="clear-title" className="font-display text-2xl leading-tight">
+              {t.clearAsk}
+            </h2>
+            <p className="mt-2 text-sm text-muted">{t.clearAskHint}</p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmClear(false)}
+                className="inline-flex h-11 items-center justify-center rounded-md border border-line bg-bg px-3 text-sm font-semibold"
               >
-                <span className="font-display text-lg leading-none text-brass tabular-nums">
-                  {numbers[index] ?? index + 1}
-                </span>
-                <span className="break-words">{name}</span>
-              </li>
-            ))}
-          </ol>
-        )}
-      </section>
+                {t.cancel}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setUndoText(text);
+                  setText("");
+                  setConfirmClear(false);
+                }}
+                className="inline-flex h-11 items-center justify-center rounded-md bg-seal px-3 text-sm font-semibold text-fg"
+              >
+                {t.clear}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

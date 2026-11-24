@@ -60,6 +60,8 @@ const CENTER = new THREE.Vector3(0, 0.42, 0);
 const TRAY_Y = -1.745;
 const TRAY_Z = 2.55;
 const COLLAR_TOP = -0.92;
+const CAMERA_ZOOM = 2.4;
+const CAMERA_DROP = 1;
 
 type Rod = { angle: number; y: number; inner: number; outer: number; radius: number };
 
@@ -225,10 +227,10 @@ export class LotteryEngine {
   private windOn = true;
   private wind = 3;
   private windWidth = 0.33;
-  private windHeight = 0.9;
+  private windHeight = 0.85;
   private windPreview = false;
   private suction = 1;
-  private volume = 1;
+  private volume = 0;
   private windClock = 0;
   private paddleOmega = 0;
   private hudText: HudCopy = {
@@ -273,11 +275,13 @@ export class LotteryEngine {
   private noiseBuf: AudioBuffer | null = null;
   private hitQueued = 0;
   private hitWait = 0;
-  private azimuth = 0.05;
-  private polar = 1.32;
-  private zoom = 1;
+  private azimuth = 0;
+  private polar = 1.32 + (15 * Math.PI) / 180;
+  private zoom = CAMERA_ZOOM;
   private pan = new THREE.Vector3();
-  private dragMode: "orbit" | "pan" | null = null;
+  private dragMode: "orbit" | "pan" | "pinch" | null = null;
+  private pointers = new Map<number, { x: number; y: number }>();
+  private pinchDist = 0;
   private lastX = 0;
   private lastY = 0;
   private centerW = new THREE.Vector3();
@@ -290,7 +294,7 @@ export class LotteryEngine {
   private observer: ResizeObserver;
   private onPointerDown: (e: PointerEvent) => void;
   private onPointerMove: (e: PointerEvent) => void;
-  private onPointerUp: () => void;
+  private onPointerUp: (e: PointerEvent) => void;
   private onWheel: (e: WheelEvent) => void;
   private onContext: (e: Event) => void;
   private onKeyDown: (e: KeyboardEvent) => void;
@@ -334,8 +338,7 @@ export class LotteryEngine {
     this.observer.observe(host);
     this.onPointerDown = (e: PointerEvent) => {
       if (this.recording) return;
-      if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
-      this.dragMode = e.button === 0 && !e.shiftKey ? "orbit" : "pan";
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       this.lastX = e.clientX;
       this.lastY = e.clientY;
       this.gl.style.cursor = "grabbing";
@@ -345,9 +348,30 @@ export class LotteryEngine {
         /* capture is optional */
       }
       this.unlock();
+      if (this.pointers.size >= 2) {
+        this.dragMode = "pinch";
+        this.pinchDist = this.pointerSpan();
+        return;
+      }
+      if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
+      this.dragMode = e.button === 0 && !e.shiftKey ? "orbit" : "pan";
     };
     this.onPointerMove = (e: PointerEvent) => {
-      if (!this.dragMode || this.recording) return;
+      const point = this.pointers.get(e.pointerId);
+      if (point) {
+        point.x = e.clientX;
+        point.y = e.clientY;
+      }
+      if (this.pointers.size >= 2) {
+        const dist = this.pointerSpan();
+        if (this.pinchDist > 8 && dist > 8) {
+          this.zoom = Math.min(4.5, Math.max(0.28, this.zoom * (this.pinchDist / dist)));
+        }
+        this.pinchDist = dist;
+        this.dragMode = "pinch";
+        return;
+      }
+      if (!this.dragMode || this.dragMode === "pinch" || this.recording) return;
       const dx = e.clientX - this.lastX;
       const dy = e.clientY - this.lastY;
       this.lastX = e.clientX;
@@ -369,8 +393,22 @@ export class LotteryEngine {
       this.pan.y += dy * upY * k;
       this.pan.z += (-dx * rightZ + dy * upZ) * k;
     };
-    this.onPointerUp = () => {
+    this.onPointerUp = (e: PointerEvent) => {
+      this.pointers.delete(e.pointerId);
+      if (this.pointers.size >= 2) {
+        this.pinchDist = this.pointerSpan();
+        return;
+      }
+      if (this.pointers.size === 1) {
+        const [left] = this.pointers.values();
+        this.dragMode = "orbit";
+        this.lastX = left.x;
+        this.lastY = left.y;
+        this.pinchDist = 0;
+        return;
+      }
       this.dragMode = null;
+      this.pinchDist = 0;
       this.gl.style.cursor = "grab";
     };
     this.onWheel = (e: WheelEvent) => {
@@ -397,6 +435,7 @@ export class LotteryEngine {
     this.gl.addEventListener("pointerdown", this.onPointerDown);
     window.addEventListener("pointermove", this.onPointerMove);
     window.addEventListener("pointerup", this.onPointerUp);
+    window.addEventListener("pointercancel", this.onPointerUp);
     this.gl.addEventListener("wheel", this.onWheel, { passive: false });
     this.gl.addEventListener("contextmenu", this.onContext);
     window.addEventListener("keydown", this.onKeyDown);
@@ -819,7 +858,8 @@ export class LotteryEngine {
     sky.frustumCulled = false;
     sky.renderOrder = -2;
     sky.scale.setScalar(640);
-    sky.rotation.set(0.28, 1.22, 0);
+    const deg = Math.PI / 180;
+    sky.rotation.set(0.28 - 15 * deg, 1.22 + 20 * deg, 0);
     this.sky = sky;
     this.scene.add(sky);
     const loader = new THREE.TextureLoader();
@@ -1485,9 +1525,9 @@ export class LotteryEngine {
   }
 
   resetCamera() {
-    this.azimuth = 0.05;
-    this.polar = 1.32;
-    this.zoom = 1;
+    this.azimuth = 0;
+    this.polar = 1.32 + (15 * Math.PI) / 180;
+    this.zoom = CAMERA_ZOOM;
     this.pan.set(0, 0, 0);
   }
 
@@ -1971,6 +2011,12 @@ export class LotteryEngine {
     }
   }
 
+  private pointerSpan() {
+    const pts = [...this.pointers.values()];
+    if (pts.length < 2) return 0;
+    return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+  }
+
   private paint() {
     if (!this.renderer) return;
     this.windGuide.visible = this.windPreview && !this.recording;
@@ -1983,6 +2029,7 @@ export class LotteryEngine {
   private placeCamera() {
     const dist = 5.7 * this.span() * this.zoom;
     const target = this.worldCenter();
+    target.y -= CAMERA_DROP * this.span();
     target.add(this.pan);
     const sp = Math.sin(this.polar);
     this.camera.position.set(
@@ -2167,6 +2214,7 @@ export class LotteryEngine {
     this.gl.removeEventListener("pointerdown", this.onPointerDown);
     window.removeEventListener("pointermove", this.onPointerMove);
     window.removeEventListener("pointerup", this.onPointerUp);
+    window.removeEventListener("pointercancel", this.onPointerUp);
     this.gl.removeEventListener("wheel", this.onWheel);
     this.gl.removeEventListener("contextmenu", this.onContext);
     window.removeEventListener("keydown", this.onKeyDown);

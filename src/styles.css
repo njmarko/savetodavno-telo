@@ -35,8 +35,15 @@
 @layer base {
   button:not(:disabled),
   [role="button"]:not(:disabled),
-  a[href] {
+  a[href],
+  summary {
     cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  input,
+  textarea {
+    touch-action: manipulation;
   }
 
   html,
@@ -59,6 +66,46 @@
   :focus-visible {
     outline: 2px solid var(--color-brass);
     outline-offset: 2px;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .app-credit {
+    display: none;
+  }
+
+  .stage-frame {
+    height: calc(100svh - 13.5rem);
+    max-height: none;
+  }
+
+  .drawn-strip {
+    max-height: 2.75rem;
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
+  }
+
+  .drawn-strip h2,
+  .drawn-strip p,
+  .drawn-strip ol {
+    margin-top: 0;
+  }
+
+  .drawn-strip h2 {
+    display: none;
+  }
+
+  .draw-dock {
+    padding-top: 0.35rem;
+    padding-bottom: max(0.35rem, env(safe-area-inset-bottom));
+  }
+
+  .draw-dock button {
+    min-height: 2.5rem;
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+    white-space: nowrap;
+    font-size: 0.875rem;
   }
 }
 
